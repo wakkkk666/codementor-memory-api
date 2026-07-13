@@ -17,12 +17,20 @@ USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
 app = FastAPI(title="CodeMentor Memory API", version="0.1.0")
 
 
+class SkillEvidence(BaseModel):
+    skill_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{1,100}$")
+    is_correct: bool
+    weight: float = Field(default=1.0, gt=0, le=1)
+    misconception: str = Field(default="", max_length=200)
+
+
 class EvidenceRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=120)
     source: Literal["practice", "interview"]
     is_correct: bool
     score: float = Field(ge=0, le=100)
     feedback: str = Field(default="", max_length=500)
+    skill_results: list[SkillEvidence] = Field(default_factory=list, max_length=10)
 
 
 class MemoryPatchRequest(BaseModel):
@@ -99,6 +107,7 @@ def add_evidence(
         source=evidence.source,
         is_correct=evidence.is_correct,
         feedback=evidence.feedback,
+        skill_results=[item.model_dump() for item in evidence.skill_results],
     )
     save_record(user_id, updated, version)
     return response_body(updated, version + 1)
