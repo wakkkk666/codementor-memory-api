@@ -5,6 +5,7 @@ from app.memory_logic import (
     record_self_report,
     start_assessment,
 )
+from app.main import EvidenceRequest, unwrap_single_request
 
 
 def test_two_correct_answers_out_of_three_marks_topic_mastered() -> None:
@@ -79,3 +80,8 @@ def test_active_assessment_is_temporary_and_can_be_cleared() -> None:
 
     cleared = clear_active_assessment(memory)
     assert cleared["active_assessment"] is None
+
+
+def test_request_unwrapper_accepts_dify_single_item_array() -> None:
+    evidence = EvidenceRequest(topic="if", source="practice", is_correct=True, score=100)
+    assert unwrap_single_request([evidence]) is evidence

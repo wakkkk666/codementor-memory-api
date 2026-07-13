@@ -5,7 +5,7 @@ import os
 import re
 from datetime import UTC, datetime
 from functools import lru_cache
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -54,6 +54,17 @@ class AssessmentStartRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     skill_targets: list[SkillTarget] = Field(min_length=1, max_length=3)
     rubric: list[str] = Field(min_length=1, max_length=6)
+
+
+RequestModel = TypeVar("RequestModel", bound=BaseModel)
+
+
+def unwrap_single_request(request: RequestModel | list[RequestModel]) -> RequestModel:
+    if not isinstance(request, list):
+        return request
+    if len(request) != 1:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Expected one request object")
+    return request[0]
 
 
 class MemoryPatchRequest(BaseModel):
@@ -125,10 +136,11 @@ def get_memory(user_id: str, _: None = Depends(require_memory_token)) -> dict[st
 @app.post("/v1/memory/{user_id}/evidence")
 def add_evidence(
     user_id: str,
-    evidence: EvidenceRequest,
+    evidence: EvidenceRequest | list[EvidenceRequest],
     _: None = Depends(require_memory_token),
 ) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
+    evidence = unwrap_single_request(evidence)
     memory, version = load_record(user_id)
     active_assessment = memory.get("active_assessment")
     if evidence.assessment_id:
@@ -153,10 +165,11 @@ def add_evidence(
 @app.put("/v1/memory/{user_id}/active-assessment")
 def begin_assessment(
     user_id: str,
-    request: AssessmentStartRequest,
+    request: AssessmentStartRequest | list[AssessmentStartRequest],
     _: None = Depends(require_memory_token),
 ) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
+    request = unwrap_single_request(request)
     memory, version = load_record(user_id)
     assessment = {
         "id": str(uuid4()),
