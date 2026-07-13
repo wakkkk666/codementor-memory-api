@@ -24,6 +24,7 @@ def default_memory() -> dict[str, Any]:
         "recent_topics": [],
         "skill_states": {},
         "recent_skills": [],
+        "active_assessment": None,
         "preferences": {},
         "last_learning_at": None,
     }
@@ -37,6 +38,7 @@ def ensure_memory(memory: dict[str, Any] | None) -> dict[str, Any]:
     result.setdefault("recent_topics", [])
     result.setdefault("skill_states", {})
     result.setdefault("recent_skills", [])
+    result.setdefault("active_assessment", None)
     result.setdefault("preferences", {})
     result.setdefault("current_plan", [])
     result["schema_version"] = max(result.get("schema_version", 1), 2)
@@ -159,6 +161,18 @@ def record_self_report(memory: dict[str, Any], topic: str) -> dict[str, Any]:
     _topic_state(result, topic)
     _add_recent_item(result, "recent_topics", topic)
     result["last_learning_at"] = utc_now()
+    return result
+
+
+def start_assessment(memory: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:
+    result = ensure_memory(memory)
+    result["active_assessment"] = deepcopy(assessment)
+    return result
+
+
+def clear_active_assessment(memory: dict[str, Any]) -> dict[str, Any]:
+    result = ensure_memory(memory)
+    result["active_assessment"] = None
     return result
 
 

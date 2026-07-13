@@ -3,14 +3,23 @@ from __future__ import annotations
 import hmac
 import os
 import re
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
-from .memory_logic import default_memory, ensure_memory, record_evidence, record_self_report
+from .memory_logic import (
+    clear_active_assessment,
+    default_memory,
+    ensure_memory,
+    record_evidence,
+    record_self_report,
+    start_assessment,
+)
 
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
@@ -24,6 +33,11 @@ class SkillEvidence(BaseModel):
     misconception: str = Field(default="", max_length=200)
 
 
+class SkillTarget(BaseModel):
+    skill_id: str = Field(pattern=r"^[a-z][a-z0-9._-]{1,100}$")
+    weight: float = Field(default=1.0, gt=0, le=1)
+
+
 class EvidenceRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=120)
     source: Literal["practice", "interview"]
@@ -31,6 +45,15 @@ class EvidenceRequest(BaseModel):
     score: float = Field(ge=0, le=100)
     feedback: str = Field(default="", max_length=500)
     skill_results: list[SkillEvidence] = Field(default_factory=list, max_length=10)
+    assessment_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AssessmentStartRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=120)
+    source: Literal["practice", "interview"]
+    question: str = Field(min_length=1, max_length=2000)
+    skill_targets: list[SkillTarget] = Field(min_length=1, max_length=3)
+    rubric: list[str] = Field(min_length=1, max_length=6)
 
 
 class MemoryPatchRequest(BaseModel):
@@ -79,7 +102,13 @@ def save_record(user_id: str, memory: dict[str, Any], version: int) -> None:
 
 
 def response_body(memory: dict[str, Any], version: int) -> dict[str, Any]:
-    return {"memory": memory, "version": version}
+    active_assessment = memory.get("active_assessment")
+    return {
+        "memory": memory,
+        "version": version,
+        "has_active_assessment": active_assessment is not None,
+        "active_assessment": active_assessment,
+    }
 
 
 @app.get("/health")
@@ -101,6 +130,12 @@ def add_evidence(
 ) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
     memory, version = load_record(user_id)
+    active_assessment = memory.get("active_assessment")
+    if evidence.assessment_id:
+        if not active_assessment or active_assessment["id"] != evidence.assessment_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assessment is no longer active")
+        if evidence.topic != active_assessment["topic"] or evidence.source != active_assessment["source"]:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Evidence does not match active assessment")
     updated = record_evidence(
         memory,
         topic=evidence.topic,
@@ -109,6 +144,39 @@ def add_evidence(
         feedback=evidence.feedback,
         skill_results=[item.model_dump() for item in evidence.skill_results],
     )
+    if evidence.assessment_id:
+        updated = clear_active_assessment(updated)
+    save_record(user_id, updated, version)
+    return response_body(updated, version + 1)
+
+
+@app.put("/v1/memory/{user_id}/active-assessment")
+def begin_assessment(
+    user_id: str,
+    request: AssessmentStartRequest,
+    _: None = Depends(require_memory_token),
+) -> dict[str, Any]:
+    user_id = validate_user_id(user_id)
+    memory, version = load_record(user_id)
+    assessment = {
+        "id": str(uuid4()),
+        "topic": request.topic,
+        "source": request.source,
+        "question": request.question,
+        "skill_targets": [item.model_dump() for item in request.skill_targets],
+        "rubric": request.rubric,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    updated = start_assessment(memory, assessment)
+    save_record(user_id, updated, version)
+    return response_body(updated, version + 1)
+
+
+@app.delete("/v1/memory/{user_id}/active-assessment")
+def cancel_assessment(user_id: str, _: None = Depends(require_memory_token)) -> dict[str, Any]:
+    user_id = validate_user_id(user_id)
+    memory, version = load_record(user_id)
+    updated = clear_active_assessment(memory)
     save_record(user_id, updated, version)
     return response_body(updated, version + 1)
 

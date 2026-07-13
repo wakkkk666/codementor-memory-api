@@ -35,3 +35,11 @@ The Dify evaluator must return structured evidence for each assessed skill. A
 single answer can be correct for one skill and incorrect for another. For code
 questions, executable checks should be preferred over LLM-only judgment where
 they are available.
+
+## Active Assessment
+
+The service temporarily stores one active assessment per learner. It contains a
+generated assessment ID, topic, source, question, skill targets, and rubric.
+It is not raw chat history and is deleted after matching evidence is written or
+when the learner cancels. This lets the next user message be evaluated against
+the exact prior task rather than guessed from text alone.

@@ -1,4 +1,10 @@
-from app.memory_logic import default_memory, record_evidence, record_self_report
+from app.memory_logic import (
+    clear_active_assessment,
+    default_memory,
+    record_evidence,
+    record_self_report,
+    start_assessment,
+)
 
 
 def test_two_correct_answers_out_of_three_marks_topic_mastered() -> None:
@@ -56,3 +62,20 @@ def test_skill_evidence_tracks_subskills_independently() -> None:
     assert basic["confidence"] == "medium"
     assert operators["status"] == "learning"
     assert operators["misconceptions"] == ["confuses-assignment-and-comparison"]
+
+
+def test_active_assessment_is_temporary_and_can_be_cleared() -> None:
+    assessment = {
+        "id": "assessment-001",
+        "topic": "if",
+        "source": "practice",
+        "question": "What does this condition do?",
+        "skill_targets": [{"skill_id": "control-flow.if.basic-syntax", "weight": 1.0}],
+        "rubric": ["Recognizes a boolean condition"],
+        "created_at": "2026-07-13T00:00:00+00:00",
+    }
+    memory = start_assessment(default_memory(), assessment)
+    assert memory["active_assessment"]["id"] == "assessment-001"
+
+    cleared = clear_active_assessment(memory)
+    assert cleared["active_assessment"] is None
