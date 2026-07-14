@@ -5,7 +5,7 @@ from app.memory_logic import (
     record_self_report,
     start_assessment,
 )
-from app.main import EvidenceRequest, unwrap_single_request
+from app.main import AssessmentStartRequest, EvidenceRequest, parse_request, unwrap_single_request
 
 
 def test_two_correct_answers_out_of_three_marks_topic_mastered() -> None:
@@ -85,3 +85,23 @@ def test_active_assessment_is_temporary_and_can_be_cleared() -> None:
 def test_request_unwrapper_accepts_dify_single_item_array() -> None:
     evidence = EvidenceRequest(topic="if", source="practice", is_correct=True, score=100)
     assert unwrap_single_request([evidence]) is evidence
+
+
+def test_request_parser_accepts_dify_input_wrapper() -> None:
+    request = parse_request(
+        {
+            "input": [
+                {
+                    "topic": "if",
+                    "source": "practice",
+                    "question": "Write an if statement.",
+                    "skill_targets": [{"skill_id": "control-flow.if.basic-syntax", "weight": 1.0}],
+                    "rubric": ["Uses a boolean condition"],
+                }
+            ]
+        },
+        AssessmentStartRequest,
+    )
+
+    assert request.topic == "if"
+    assert request.skill_targets[0].skill_id == "control-flow.if.basic-syntax"

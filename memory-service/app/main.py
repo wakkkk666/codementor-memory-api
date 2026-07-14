@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import re
 from datetime import UTC, datetime
@@ -8,8 +9,8 @@ from functools import lru_cache
 from typing import Annotated, Any, Literal, TypeVar
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
+from pydantic import BaseModel, Field, ValidationError
 from supabase import Client, create_client
 
 from .memory_logic import (
@@ -59,12 +60,36 @@ class AssessmentStartRequest(BaseModel):
 RequestModel = TypeVar("RequestModel", bound=BaseModel)
 
 
-def unwrap_single_request(request: RequestModel | list[RequestModel]) -> RequestModel:
+def unwrap_single_request(request: Any) -> Any:
+    """Normalize the JSON shapes emitted by Dify HTTP nodes."""
+    if isinstance(request, str):
+        try:
+            request = json.loads(request)
+        except json.JSONDecodeError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Request body must contain JSON",
+            ) from error
+
+    # Some Dify versions wrap an HTTP JSON body in {"input": [...]}.
+    if isinstance(request, dict) and set(request) == {"input"}:
+        request = request["input"]
+
     if not isinstance(request, list):
         return request
     if len(request) != 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Expected one request object")
     return request[0]
+
+
+def parse_request(request: Any, model: type[RequestModel]) -> RequestModel:
+    try:
+        return model.model_validate(unwrap_single_request(request))
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error.errors(include_url=False),
+        ) from error
 
 
 class MemoryPatchRequest(BaseModel):
@@ -136,11 +161,11 @@ def get_memory(user_id: str, _: None = Depends(require_memory_token)) -> dict[st
 @app.post("/v1/memory/{user_id}/evidence")
 def add_evidence(
     user_id: str,
-    evidence: EvidenceRequest | list[EvidenceRequest],
+    evidence: Annotated[Any, Body()],
     _: None = Depends(require_memory_token),
 ) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
-    evidence = unwrap_single_request(evidence)
+    evidence = parse_request(evidence, EvidenceRequest)
     memory, version = load_record(user_id)
     active_assessment = memory.get("active_assessment")
     if evidence.assessment_id:
@@ -165,11 +190,11 @@ def add_evidence(
 @app.put("/v1/memory/{user_id}/active-assessment")
 def begin_assessment(
     user_id: str,
-    request: AssessmentStartRequest | list[AssessmentStartRequest],
+    request: Annotated[Any, Body()],
     _: None = Depends(require_memory_token),
 ) -> dict[str, Any]:
     user_id = validate_user_id(user_id)
-    request = unwrap_single_request(request)
+    request = parse_request(request, AssessmentStartRequest)
     memory, version = load_record(user_id)
     assessment = {
         "id": str(uuid4()),
