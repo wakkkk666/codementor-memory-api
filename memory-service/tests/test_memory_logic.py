@@ -105,3 +105,19 @@ def test_request_parser_accepts_dify_input_wrapper() -> None:
 
     assert request.topic == "if"
     assert request.skill_targets[0].skill_id == "control-flow.if.basic-syntax"
+
+
+def test_request_parser_decodes_dify_json_string_arrays() -> None:
+    request = parse_request(
+        {
+            "topic": "if",
+            "source": "practice",
+            "question": "Write an if statement.",
+            "skill_targets": '[{"skill_id":"control-flow.if.basic-syntax","weight":1.0}]',
+            "rubric": '["Uses a boolean condition"]',
+        },
+        AssessmentStartRequest,
+    )
+
+    assert request.rubric == ["Uses a boolean condition"]
+    assert request.skill_targets[0].weight == 1.0

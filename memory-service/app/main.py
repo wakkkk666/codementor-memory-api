@@ -71,8 +71,9 @@ def unwrap_single_request(request: Any) -> Any:
                 detail="Request body must contain JSON",
             ) from error
 
-    # Some Dify versions wrap an HTTP JSON body in {"input": [...]}.
-    if isinstance(request, dict) and set(request) == {"input"}:
+    # Some Dify versions wrap an HTTP JSON body in {"input": [...]} and
+    # attach transport metadata alongside it.
+    if isinstance(request, dict) and "input" in request and "topic" not in request:
         request = request["input"]
 
     if not isinstance(request, list):
@@ -82,9 +83,27 @@ def unwrap_single_request(request: Any) -> Any:
     return request[0]
 
 
+def normalize_nested_json(request: Any) -> Any:
+    if not isinstance(request, dict):
+        return request
+
+    normalized = request.copy()
+    for field in ("skill_targets", "rubric", "skill_results"):
+        value = normalized.get(field)
+        if not isinstance(value, str):
+            continue
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, list):
+            normalized[field] = decoded
+    return normalized
+
+
 def parse_request(request: Any, model: type[RequestModel]) -> RequestModel:
     try:
-        return model.model_validate(unwrap_single_request(request))
+        return model.model_validate(normalize_nested_json(unwrap_single_request(request)))
     except ValidationError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
