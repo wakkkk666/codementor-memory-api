@@ -1,0 +1,18 @@
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Local scratch files
+work/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
