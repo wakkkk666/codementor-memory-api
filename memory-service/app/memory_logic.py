@@ -176,6 +176,79 @@ def clear_active_assessment(memory: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def build_learning_report(memory: dict[str, Any], *, course_total: int) -> dict[str, Any]:
+    """Build a read-only, deterministic view of a learner's saved evidence."""
+    if course_total < 1:
+        raise ValueError("course_total must be positive")
+
+    result = ensure_memory(memory)
+    topics = []
+    for topic, state in sorted(result["topic_states"].items(), key=lambda item: item[0].lower()):
+        practice_total = state.get("practice_total", 0)
+        interview_total = state.get("interview_total", 0)
+        topics.append(
+            {
+                "topic": topic,
+                "status": state.get("status", "learning"),
+                "assessment_count": practice_total + interview_total,
+                "practice_total": practice_total,
+                "interview_total": interview_total,
+                "accuracy": state.get("accuracy", 0.0),
+                "last_assessed_at": state.get("last_assessed_at"),
+            }
+        )
+
+    skills = []
+    for skill_id, state in sorted(result["skill_states"].items()):
+        skills.append(
+            {
+                "skill_id": skill_id,
+                "status": state.get("status", "unknown"),
+                "confidence": state.get("confidence", "low"),
+                "assessment_count": state.get("assessment_count", 0),
+                "accuracy": state.get("accuracy", 0.0),
+                "misconceptions": state.get("misconceptions", []),
+                "last_assessed_at": state.get("last_assessed_at"),
+            }
+        )
+
+    status_counts = {"learning": 0, "reviewing": 0, "mastered": 0}
+    for topic in topics:
+        if topic["status"] in status_counts:
+            status_counts[topic["status"]] += 1
+
+    review_topics = [topic["topic"] for topic in topics if topic["status"] == "reviewing"]
+    review_skills = [
+        {
+            "skill_id": skill["skill_id"],
+            "misconceptions": skill["misconceptions"],
+        }
+        for skill in skills
+        if skill["misconceptions"]
+    ]
+    mastered = status_counts["mastered"]
+    started = len(topics)
+
+    return {
+        "course_total": course_total,
+        "mastered_progress_percent": round((mastered / course_total) * 100, 2),
+        "summary": {
+            "started_topics": started,
+            "not_started_topics": max(course_total - started, 0),
+            "learning_topics": status_counts["learning"],
+            "reviewing_topics": status_counts["reviewing"],
+            "mastered_topics": mastered,
+        },
+        "topics": topics,
+        "skills": skills,
+        "review_priorities": {
+            "topics": review_topics[:5],
+            "skills": review_skills[:5],
+        },
+        "last_learning_at": result.get("last_learning_at"),
+    }
+
+
 def _add_recent_item(memory: dict[str, Any], key: str, value: str) -> None:
     values = [item for item in memory[key] if item != value]
     memory[key] = ([value] + values)[:MAX_RECENT_ITEMS]

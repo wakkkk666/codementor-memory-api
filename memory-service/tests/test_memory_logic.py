@@ -1,4 +1,5 @@
 from app.memory_logic import (
+    build_learning_report,
     clear_active_assessment,
     default_memory,
     record_evidence,
@@ -80,6 +81,55 @@ def test_active_assessment_is_temporary_and_can_be_cleared() -> None:
 
     cleared = clear_active_assessment(memory)
     assert cleared["active_assessment"] is None
+
+
+def test_learning_report_counts_only_mastered_topics_as_complete() -> None:
+    memory = default_memory()
+    for correct in (True, True, False):
+        memory = record_evidence(memory, topic="if", source="practice", is_correct=correct, feedback="ok")
+    memory = record_evidence(memory, topic="for", source="practice", is_correct=True, feedback="ok")
+    memory = record_evidence(
+        memory,
+        topic="for",
+        source="practice",
+        is_correct=False,
+        feedback="retry",
+        skill_results=[
+            {
+                "skill_id": "control-flow.for.condition",
+                "is_correct": False,
+                "weight": 1.0,
+                "misconception": "condition-is-incomplete",
+            }
+        ],
+    )
+
+    report = build_learning_report(memory, course_total=23)
+
+    assert report["summary"] == {
+        "started_topics": 2,
+        "not_started_topics": 21,
+        "learning_topics": 1,
+        "reviewing_topics": 0,
+        "mastered_topics": 1,
+    }
+    assert report["mastered_progress_percent"] == 4.35
+    assert report["review_priorities"]["skills"] == [
+        {
+            "skill_id": "control-flow.for.condition",
+            "misconceptions": ["condition-is-incomplete"],
+        }
+    ]
+
+
+def test_learning_report_for_new_user_has_no_fabricated_progress() -> None:
+    report = build_learning_report(default_memory(), course_total=23)
+
+    assert report["mastered_progress_percent"] == 0.0
+    assert report["summary"]["started_topics"] == 0
+    assert report["summary"]["not_started_topics"] == 23
+    assert report["topics"] == []
+    assert report["skills"] == []
 
 
 def test_request_unwrapper_accepts_dify_single_item_array() -> None:

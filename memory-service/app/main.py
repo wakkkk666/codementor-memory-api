@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 from supabase import Client, create_client
 
 from .memory_logic import (
+    build_learning_report,
     clear_active_assessment,
     default_memory,
     ensure_memory,
@@ -24,6 +25,7 @@ from .memory_logic import (
 
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
+DEFAULT_COURSE_TOPIC_COUNT = 23
 app = FastAPI(title="CodeMentor Memory API", version="0.1.0")
 
 
@@ -166,6 +168,15 @@ def response_body(memory: dict[str, Any], version: int) -> dict[str, Any]:
     }
 
 
+def course_topic_count() -> int:
+    raw_value = os.getenv("COURSE_TOPIC_COUNT", str(DEFAULT_COURSE_TOPIC_COUNT))
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return DEFAULT_COURSE_TOPIC_COUNT
+    return value if value > 0 else DEFAULT_COURSE_TOPIC_COUNT
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -175,6 +186,12 @@ def health() -> dict[str, str]:
 def get_memory(user_id: str, _: None = Depends(require_memory_token)) -> dict[str, Any]:
     memory, version = load_record(validate_user_id(user_id))
     return response_body(memory, version)
+
+
+@app.get("/v1/memory/{user_id}/report")
+def get_learning_report(user_id: str, _: None = Depends(require_memory_token)) -> dict[str, Any]:
+    memory, _version = load_record(validate_user_id(user_id))
+    return build_learning_report(memory, course_total=course_topic_count())
 
 
 @app.post("/v1/memory/{user_id}/evidence")
